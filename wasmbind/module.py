@@ -30,18 +30,20 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     def convert(v):
         if isinstance(v, WasmRefValue):
             return v
+
         elif isinstance(v, str):
             # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L120
             pointer = instance.exports.__alloc(len(v) * 2, STRING_ID)
 
             buffer = instance.memory.uint8_view(pointer)
-            bytes = v.encode('utf-16')
+            bytes = v.encode('utf-16le')  # Without BOM
             buffer[:len(bytes)] = bytes
 
             lengthview = instance.memory.uint32_view(0)
             lengthview[int(pointer / 4) - 1] = len(bytes)
 
             return pointer
+
         else:
             return v
 
