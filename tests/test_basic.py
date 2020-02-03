@@ -44,3 +44,29 @@ def test_return_an_object(from_code):
 
     foo = module.getFoo(as_=module.Foo)
     assert foo.bar == 42
+
+
+def test_pass_objects_as_arguments(from_code):
+    module = from_code("""
+    export class Line {
+      constructor(
+        public s: string
+      ) {}
+    }
+
+    export class File {
+      public lines: Line[] = []
+
+      constructor() {}
+
+      addLine(line: Line): number {
+        this.lines.push(line);
+        return this.lines.length; 
+      }
+    }
+    """)
+
+    file = module.File()
+
+    assert file.addLine(module.Line("line 1")) == 1
+    assert file.addLine(module.Line("line 2")) == 2
