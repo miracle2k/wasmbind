@@ -1,8 +1,14 @@
 import functools
-from typing import Dict, Any, Iterable
+from typing import Dict, Any, Iterable, List
 import json
 
 import wasmer
+
+
+# Before a data type, the memory stores the type and the size
+# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L3
+ID_OFFSET = -8
+SIZE_OFFSET = -4
 
 
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L8
@@ -59,7 +65,11 @@ def make_function(f, *, instance: wasmer.Instance):
                 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L43
 
                 u32 = instance.memory.uint32_view(0)
-                string_length = u32[int(value / 4) - 1]
+
+                datatype = u32[int((value + ID_OFFSET) / 4)]
+                assert datatype == STRING_ID
+
+                string_length = u32[int((value + SIZE_OFFSET) / 4)]
                 print(string_length)
 
                 u8 = instance.memory.uint8_view(value)
