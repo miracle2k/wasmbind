@@ -72,7 +72,6 @@ def make_function(f, *, instance: wasmer.Instance):
                 assert datatype == STRING_ID
 
                 string_length = u32[int((value + SIZE_OFFSET) / 4)]
-                print(string_length)
 
                 u8 = instance.memory.uint8_view(value)
                 string_bytes = u8[:string_length]
@@ -135,7 +134,6 @@ class Module:
     def __new__(cls, instance: wasmer.Instance):
         # The only way to get those from wasmer-ext.
         export_names = json.loads(str(instance.exports))
-        print(export_names)
 
         classdict = {}
         allocator = {}
