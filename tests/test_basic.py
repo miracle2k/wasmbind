@@ -4,8 +4,7 @@ def test_strings(from_code):
         return "foo:" + s
     }
     """)
-    print(module.helloworld("foo", as_=str))
-    assert False
+    assert module.helloworld("foo", as_=str) == 'foo:foo'
 
 
 def test_root_function(from_code):
