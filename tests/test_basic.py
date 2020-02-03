@@ -1,3 +1,13 @@
+def test_strings(from_code):
+    module = from_code("""
+    export function helloworld(s: string): string {
+        return "foo:" + s
+    }
+    """)
+    print(module.helloworld("foo", as_=str))
+    assert False
+
+
 def test_root_function(from_code):
     module = from_code("""
     export function sum(a: i32, b: i32): i32 {

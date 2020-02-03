@@ -1,5 +1,5 @@
 import pytest
-from wasmer import Instance
+import wasmer
 import subprocess
 
 from wasmbind import Module
@@ -22,7 +22,9 @@ def from_code(tmpdir):
         out_bytes, err = process.communicate()
         if err:
             raise ValueError(err)
-        instance = Instance(out_bytes)
+        module = wasmer.Module(out_bytes)
+
+        instance = module.instantiate()
         return Module(instance)
 
     return from_code
