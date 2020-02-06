@@ -6,10 +6,14 @@ import json
 import wasmer
 
 
+# [REFCOUNTS]: https://docs.assemblyscript.org/details/runtime#rules, https://docs.assemblyscript.org/details/runtime#working-with-references-externally
+
+
 # Before a data type, the memory stores the type and the size
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L3
 ID_OFFSET = -8
 SIZE_OFFSET = -4
+REFCOUNT_OFFSET = - 12
 
 
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L8
@@ -50,7 +54,7 @@ ARRAY_SIZE = 16
 WasmMemPointer = int
 
 
-class WasmRefValue:
+class WasmClass:
     """This base class indicates the subclass returns the wasm id via hash().
     """
     pass
@@ -88,6 +92,10 @@ class AssemblyScriptModule:
     def retain(self):
         return getattr(self.instance.exports, '__retain')
 
+    @property
+    def release(self):
+        return getattr(self.instance.exports, '__release')
+
     def load_type(self, id: Union[int, RTTIType]) -> RTTIType:
         """From the RTTI section of the WASM memory, load information about the type with id `id`.
 
@@ -119,12 +127,29 @@ class AssemblyScriptModule:
         mem_index = 1 + id * 2
         return RTTIType(id=id, base_id=view[mem_index+1], flags=view[mem_index])
 
-    def get_type_of(self, pointer: WasmMemPointer) -> RTTIType:
+    def get_type_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
         """Return the type of a pointer.
         """
+        if isinstance(pointer, WasmClass):
+            pointer = hash(pointer)
         view = self.instance.memory.uint32_view((pointer + ID_OFFSET) // 4)
         type_id = view[0]
         return self.load_type(type_id)
+
+    def get_pointer(self, instance: Union[WasmMemPointer, WasmClass]) -> WasmMemPointer:
+        """Resolve a Python wrapper class to the AssemblyScript pointer.
+        """
+        if isinstance(instance, WasmClass):
+            return hash(instance)
+        return instance
+
+    def get_refcount_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
+        """Return the refcount of a pointer.
+        """
+        if isinstance(pointer, WasmClass):
+            pointer = hash(pointer)
+        view = self.instance.memory.uint32_view((pointer + REFCOUNT_OFFSET) // 4)
+        return view[0]
 
     def alloc_array(self, type_id: int, values):
         """
@@ -197,7 +222,7 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     Replaces any `WasmRefValue` in `values` with the wasm id number.
     """
     def convert(v):
-        if isinstance(v, WasmRefValue):
+        if isinstance(v, WasmClass):
             return hash(v)
 
         elif isinstance(v, str):
@@ -224,7 +249,7 @@ def make_function(f, *, instance: wasmer.Instance):
     def wrapped(*args, as_=None):
         value = f(*map_wasm_values(args, instance=instance))
         if as_:
-            if issubclass(as_, WasmRefValue):
+            if issubclass(as_, WasmClass):
                 obj = object.__new__(as_)
                 obj.__dict__['__id'] = value
                 return obj
@@ -287,17 +312,22 @@ def make_class(classname, class_exports: Dict, *, instance: wasmer.Instance):
         )
 
     def __init__(self, *args):
+        # [REFCOUNTS] The object returned by a class constructor is auto-retained (refcount = 1)
         self.__id = ctor(0, *map_wasm_values(args, instance=instance))
 
     def __hash__(self):
         return self.__id
 
+    def __del__(self):
+        instance.exports.__release(self.__id)
+
     attrs.update({
         '__init__': __init__,
         '__hash__': __hash__,
+        '__del__': __del__,
     })
 
-    return type(classname, (WasmRefValue,), attrs)
+    return type(classname, (WasmClass,), attrs)
 
 
 class Module(AssemblyScriptModule):
