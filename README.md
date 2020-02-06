@@ -19,15 +19,15 @@ Supported:
 
 - Ability to exchange strings and custom classes.
 
-Note: Currently, if your class does not define a constructor, it will not be exposed.
-
 Future plans:
 
-- [ ] Investigate correct memory management
-- [ ] Support arrays
-- [ ] See if we can use RTTI to remove the need for a manual `as_`.
+- [ ] Ensure correct memory management for strings.
+- [ ] Allow wrapping arrays returned from WASM.
+- [ ] Improve these docs.
+- [ ] See if we can use RTTI to remove the need for a manual `as_`. We might have to create a class registry
+      similar to [as-bind](https://github.com/torch2424/as-bind/blob/97353ef6f8e39a4277957079b5d6a9e7d85ee709/lib/assembly/as-bind.ts)
 - [ ] Investigate an alternative approach wherein you predefine classes (with types) in Python code.
-
+- [ ] Allow creation of types without a constructor.
 
 ## Usage
 

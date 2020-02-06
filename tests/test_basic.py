@@ -114,7 +114,7 @@ class TestArrays:
         }        
         """)
 
-        # TODO: Also test
+        # TODO: Also test gc, to make sure we keep a reference while we have it.
 
 
 class TestGarbageCollect:
