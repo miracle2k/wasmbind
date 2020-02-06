@@ -216,19 +216,23 @@ class AssemblyScriptModule:
         if type.has(ARRAY):
             array_view[ARRAY_LENGTH_OFFSET // 4] = length
 
+        # NB: >>> align will divide the 8bit pointers by the size of the array elements.
+        view_class = get_array_view_class(
+            self.instance,
+            is_float=type.has(VAL_FLOAT), alignment=align, is_signed=type.has(VAL_SIGNED))
+        array_buffer_view = view_class(array_buffer_pointer >> align)
+
         if type.has(VAL_MANAGED):
-            # for (let i = 0; i < length; ++i) view[(buf >>> align) + i] = retain(values[i]);
-            raise ValueError("Arrays with reference types not yet supported.")
+            for idx, value in enumerate(values):
+                # For now, only allow classes to be added for consistency; we don't want to deal with ref counting
+                # pointer values.
+                assert isinstance(value, WasmClass)
+                array_buffer_view[idx] = self.retain(self.get_pointer(value))
         else:
-            # we want to write to array_buffer_pointer (divided by /align because that is the view we will use)
-            view_class = get_array_view_class(
-                self.instance,
-                is_float=type.has(VAL_FLOAT), alignment=align, is_signed=type.has(VAL_SIGNED))
-            array_view = view_class(array_buffer_pointer >> align)
-            array_view[:length] = values
+            array_buffer_view[:length] = values
 
         self.retain(array_pointer)
-        return WasmArray.wrap(array_pointer, length=length, buffer_view=array_view)
+        return WasmArray.wrap(array_pointer, length=length, buffer_view=array_buffer_view)
 
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):

@@ -111,10 +111,25 @@ class TestArrays:
         module = from_code("""        
         export function getFoo(): i32[] {
             return [1,4]
-        }        
+        }
         """)
 
         # TODO: Also test gc, to make sure we keep a reference while we have it.
+
+    def test_alloc_and_pass_array_of_references(self, from_code):
+        module = from_code("""        
+        export class Foo { constructor(public x: i32) {} }       
+        export const FooArrayId = idof<Foo[]>();
+        
+        export function getItem(data: Foo[], idx: i32): i32 {
+            return data[idx].x;
+        }
+        """)
+
+        foo_array = module.alloc_array(module.FooArrayId, [module.Foo(3), module.Foo(4)])
+        assert len(foo_array) == 2
+        assert module.getItem(foo_array, 0) == 3
+        assert module.getItem(foo_array, 1) == 4
 
 
 class TestGarbageCollect:
