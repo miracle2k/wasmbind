@@ -5,6 +5,7 @@ import subprocess
 from wasmbind import Module
 
 
+
 @pytest.fixture
 def from_code(tmpdir):
     def from_code(assemblyscript: str) -> Module:
