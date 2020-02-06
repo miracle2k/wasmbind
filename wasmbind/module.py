@@ -17,9 +17,14 @@ REFCOUNT_OFFSET = - 12
 
 
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L8
-ARRAYBUFFER_ID = 0
 STRING_ID = 1
+# An array buffer is a type, with a header, that stores array data.
+ARRAYBUFFER_ID = 0
+# A TypedArray such as UInt8Array is a dynamic type, with this id as the base id. They all follow the same memory
+# structure, which is defined as the structure of this base type.
+# A normal Array<u8> is very similar, base this as the base, but adds an extra field.
 ARRAYBUFFERVIEW_ID = 2
+
 
 # Runtime type information flags
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L12
@@ -57,7 +62,41 @@ WasmMemPointer = int
 class WasmClass:
     """This base class indicates the subclass returns the wasm id via hash().
     """
-    pass
+
+    def __hash__(self):
+        return self._id
+
+
+class WasmArray(WasmClass):
+
+    @classmethod
+    def wrap(cls, pointer: WasmMemPointer, *, length: int, buffer_view):
+        array = object.__new__(WasmArray)
+        array._length = length
+        array._buffer_view = buffer_view
+        array._id = pointer
+        return array
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, idx: int):
+        idx = validate_index(idx, self._length)
+        return self._buffer_view[idx]
+
+    def __setitem__(self, idx: int, value):
+        idx = validate_index(idx, self._length)
+        self._buffer_view[idx] = value
+
+
+def validate_index(idx: Union[int, slice], length: int) -> Union[int, slice]:
+    if isinstance(idx, slice):
+        return slice(idx.start, min(idx.stop, length), idx.step)
+
+    if idx >= length:
+        raise IndexError(max)
+
+    return idx
 
 
 # https://codegolf.stackexchange.com/a/177280
@@ -96,6 +135,13 @@ class AssemblyScriptModule:
     def release(self):
         return getattr(self.instance.exports, '__release')
 
+    def get_pointer(self, instance: Union[WasmMemPointer, WasmClass]) -> WasmMemPointer:
+        """Resolve a Python wrapper class to the AssemblyScript pointer.
+        """
+        if isinstance(instance, WasmClass):
+            return instance._id
+        return instance
+
     def load_type(self, id: Union[int, RTTIType]) -> RTTIType:
         """From the RTTI section of the WASM memory, load information about the type with id `id`.
 
@@ -130,24 +176,15 @@ class AssemblyScriptModule:
     def get_type_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
         """Return the type of a pointer.
         """
-        if isinstance(pointer, WasmClass):
-            pointer = hash(pointer)
+        pointer = self.get_pointer(pointer)
         view = self.instance.memory.uint32_view((pointer + ID_OFFSET) // 4)
         type_id = view[0]
         return self.load_type(type_id)
 
-    def get_pointer(self, instance: Union[WasmMemPointer, WasmClass]) -> WasmMemPointer:
-        """Resolve a Python wrapper class to the AssemblyScript pointer.
-        """
-        if isinstance(instance, WasmClass):
-            return hash(instance)
-        return instance
-
     def get_refcount_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
         """Return the refcount of a pointer.
         """
-        if isinstance(pointer, WasmClass):
-            pointer = hash(pointer)
+        pointer = self.get_pointer(pointer)
         view = self.instance.memory.uint32_view((pointer + REFCOUNT_OFFSET) // 4)
         return view[0]
 
@@ -161,8 +198,8 @@ class AssemblyScriptModule:
 
         type = self.load_type(type_id)
         if not type.has(ARRAYBUFFERVIEW | ARRAY):
-            raise ValueError(f"{type} is not an array type. If you want to use this type in an array, you need to"
-                             f"create a concrete array type for it.")
+            raise TypeError(f"{type} is not an array type. If you want to use this type in an array, you need to"
+                            f"create a concrete array type for it.")
 
         length = len(values)
         align = type.value_align
@@ -190,7 +227,8 @@ class AssemblyScriptModule:
             array_view = view_class(array_buffer_pointer >> align)
             array_view[:length] = values
 
-        return array_pointer
+        self.retain(array_pointer)
+        return WasmArray.wrap(array_pointer, length=length, buffer_view=array_view)
 
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
@@ -251,7 +289,7 @@ def make_function(f, *, instance: wasmer.Instance):
         if as_:
             if issubclass(as_, WasmClass):
                 obj = object.__new__(as_)
-                obj.__dict__['__id'] = value
+                obj.__dict__['_id'] = value
                 return obj
 
             if issubclass(as_, str):
@@ -313,17 +351,13 @@ def make_class(classname, class_exports: Dict, *, instance: wasmer.Instance):
 
     def __init__(self, *args):
         # [REFCOUNTS] The object returned by a class constructor is auto-retained (refcount = 1)
-        self.__id = ctor(0, *map_wasm_values(args, instance=instance))
-
-    def __hash__(self):
-        return self.__id
+        self._id = ctor(0, *map_wasm_values(args, instance=instance))
 
     def __del__(self):
-        instance.exports.__release(self.__id)
+        instance.exports.__release(self._id)
 
     attrs.update({
         '__init__': __init__,
-        '__hash__': __hash__,
         '__del__': __del__,
     })
 
@@ -366,3 +400,5 @@ class Module(AssemblyScriptModule):
 
         self.__dict__.update(classdict)
 
+    def __getattr__(self, item):
+        return getattr(self.instance.globals, item).value

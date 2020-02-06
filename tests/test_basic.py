@@ -1,3 +1,8 @@
+import pytest
+
+from wasmbind.module import WasmArray
+
+
 def test_strings(from_code):
     module = from_code("""
     export function helloworld(s: string): string {
@@ -56,6 +61,60 @@ class TestRTTI:
         foo_type = module.get_type_of(module.Foo())
         bar_type = module.get_type_of(module.Bar())
         assert bar_type.base_id == foo_type.id
+
+
+class TestArrays:
+    def test_return_array(self, from_code):
+        module = from_code("""
+        export class Foo { 
+            constructor() {}
+            getNumbers(): u32[] {
+                return [9, 3, 1];
+            }
+        }        
+        """)
+        array = module.Foo().getNumbers()
+        assert False
+
+    def test_alloc_invalid_array(self, from_code):
+        module = from_code("""
+        export class Foo { constructor() {} }       
+        export const Int8ArrayId = idof<Foo>();        
+        """)
+        with pytest.raises(TypeError):
+            module.alloc_array(module.Int8ArrayId, [1, 2, 3])
+
+    def test_alloc_and_pass_array(self, from_code):
+        module = from_code("""
+        export const Int8ArrayId = idof<Array<u8>>();
+        export function sum(arg: u8[]): u8 {
+            return arg.reduce((a, b) => a + b, 0) as u8;
+        };
+        """)
+
+        # Create an array in WASM memory on the Python side
+        array = module.alloc_array(module.Int8ArrayId, [1, 2, 3])
+        assert module.get_refcount_of(array) == 1
+
+        # Index access
+        assert array[0] == 1
+        assert array[1:3] == [2, 3]
+
+        # Can pass array to WASM
+        assert module.sum(array) == 6
+
+        # Can change the array in Python
+        array[1:3] = [8, 5]
+        assert module.sum(array) == 14
+
+    def test_access_wasm_created_array(self, from_code):
+        module = from_code("""        
+        export function getFoo(): i32[] {
+            return [1,4]
+        }        
+        """)
+
+        # TODO: Also test
 
 
 class TestGarbageCollect:
