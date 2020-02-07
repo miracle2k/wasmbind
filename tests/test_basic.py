@@ -73,8 +73,7 @@ class TestArrays:
             }
         }        
         """)
-        array = module.Foo().getNumbers()
-        assert False
+        assert(module.Foo().getNumbers(), int)
 
     def test_alloc_invalid_array(self, from_code):
         module = from_code("""
@@ -126,7 +125,11 @@ class TestArrays:
         }
         """)
 
-        foo_array = module.alloc_array(module.FooArrayId, [module.Foo(3), module.Foo(4)])
+        foo_array = module.alloc_array(
+            module.FooArrayId, [module.Foo(3), module.Foo(4)])
+
+        assert foo_array[0].as_(module.Foo).x == 3
+
         assert len(foo_array) == 2
         assert module.getItem(foo_array, 0) == 3
         assert module.getItem(foo_array, 1) == 4
