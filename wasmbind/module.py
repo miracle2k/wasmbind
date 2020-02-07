@@ -59,20 +59,15 @@ ARRAY_SIZE = 16
 WasmMemPointer = int
 
 
-class WasmClass:
-    """This base class indicates the subclass returns the wasm id via hash().
+class AssemblyScriptObject:
+    """An opaque Python object wrapping a AssemblyScript object.
+
+    This Python object keeps a reference to the AS object in WASM memory, and once the object
+    has been GCed in Python, it will decrease the AS reference count.
     """
 
     _id: str
     _module = None
-
-    @classmethod
-    def create(cls, pointer: WasmMemPointer, *, module):
-        obj = object.__new__(cls)
-        obj._id = pointer
-        obj._module = module
-        module.retain(pointer)
-        return obj
 
     def __hash__(self):
         return self._id
@@ -83,8 +78,23 @@ class WasmClass:
     def __repr__(self):
         return f'<AssemblyScriptObject@{self._id}>'
 
+    @classmethod
+    def create(cls, pointer: WasmMemPointer, *, module):
+        obj = object.__new__(cls)
+        obj._id = pointer
+        obj._module = module
+        module.retain(pointer)
+        return obj
 
-class WasmArray(WasmClass):
+    def __init__(self):
+        raise TypeError("Use .create()")
+
+
+class AssemblyScriptClass(AssemblyScriptObject):
+    pass
+
+
+class WasmArray(AssemblyScriptObject):
 
     _length = None
     _buffer_view = None
@@ -168,14 +178,14 @@ class AssemblyScriptModule:
     def release(self):
         return getattr(self.instance.exports, '__release')
 
-    def get_pointer(self, instance: Union[WasmMemPointer, WasmClass]) -> WasmMemPointer:
+    def get_pointer(self, instance: Union[WasmMemPointer, AssemblyScriptObject]) -> WasmMemPointer:
         """Resolve a Python wrapper class to the AssemblyScript pointer.
         """
-        if isinstance(instance, WasmClass):
+        if isinstance(instance, AssemblyScriptObject):
             return instance._id
         return instance
 
-    def resolve(self, pointer: WasmMemPointer) -> WasmClass:
+    def resolve(self, pointer: WasmMemPointer) -> AssemblyScriptObject:
         """
         The reverse of `get_pointer()`.
         """
@@ -216,7 +226,7 @@ class AssemblyScriptModule:
         mem_index = 1 + id * 2
         return RTTIType(id=id, base_id=view[mem_index+1], flags=view[mem_index])
 
-    def get_type_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
+    def get_type_of(self, pointer: Union[WasmMemPointer, AssemblyScriptObject]) -> RTTIType:
         """Return the type of a pointer.
         """
         pointer = self.get_pointer(pointer)
@@ -224,7 +234,7 @@ class AssemblyScriptModule:
         type_id = view[0]
         return self.load_type(type_id)
 
-    def get_refcount_of(self, pointer: Union[WasmMemPointer, WasmClass]) -> RTTIType:
+    def get_refcount_of(self, pointer: Union[WasmMemPointer, AssemblyScriptObject]) -> RTTIType:
         """Return the refcount of a pointer.
         """
         pointer = self.get_pointer(pointer)
@@ -256,7 +266,7 @@ class AssemblyScriptModule:
         return WasmArray.create(
             pointer,
             length=length, buffer_view=array_buffer_view, module=self,
-            managed_class=WasmClass if is_managed else None)
+            managed_class=AssemblyScriptObject if is_managed else None)
 
     def alloc_array(self, type_id: int, values):
         """
@@ -296,14 +306,14 @@ class AssemblyScriptModule:
             for idx, value in enumerate(values):
                 # For now, only allow classes to be added for consistency; we don't want to deal with ref counting
                 # pointer values.
-                assert isinstance(value, WasmClass)
+                assert isinstance(value, AssemblyScriptObject)
                 array_buffer_view[idx] = self.retain(self.get_pointer(value))
         else:
             array_buffer_view[:length] = values
 
         return WasmArray.create(
             array_pointer, length=length, buffer_view=array_buffer_view, module=self,
-            managed_class=WasmClass if type.has(VAL_MANAGED) else None)
+            managed_class=AssemblyScriptObject if type.has(VAL_MANAGED) else None)
 
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
@@ -335,7 +345,7 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     Replaces any `WasmRefValue` in `values` with the wasm id number.
     """
     def convert(v):
-        if isinstance(v, WasmClass):
+        if isinstance(v, AssemblyScriptObject):
             return hash(v)
 
         elif isinstance(v, str):
@@ -362,7 +372,7 @@ def make_function(f, *, instance: wasmer.Instance):
     def wrapped(*args, as_=None):
         value = f(*map_wasm_values(args, instance=instance))
         if as_:
-            if issubclass(as_, WasmClass):
+            if issubclass(as_, AssemblyScriptObject):
                 obj = object.__new__(as_)
                 obj.__dict__['_id'] = value
                 return obj
@@ -431,16 +441,20 @@ def make_class(classname, class_exports: Dict, *, module: AssemblyScriptModule):
         obj._id = _id
         return obj
 
+    def __init__(self, *a, **kw):
+        pass
+
     def wrap(cls, pointer: WasmMemPointer):
         return cls.create(pointer, module=module)
 
     attrs.update({
         '_module': module,
         '__new__': __new__,
+        '__init__': __init__,
         'wrap': classmethod(wrap)
     })
 
-    return type(classname, (WasmClass,), attrs)
+    return type(classname, (AssemblyScriptClass,), attrs)
 
 
 class Module(AssemblyScriptModule):
