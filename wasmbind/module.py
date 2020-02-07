@@ -92,7 +92,7 @@ class AssemblyScriptArray(AssemblyScriptObject, Sequence):
         value = self._buffer_view[idx]
 
         if self._managed_class:
-            return self._managed_class.create(value, module=self._module)
+            return self._module.resolve(value, self._managed_class)
 
         return value
 
@@ -203,7 +203,7 @@ class AssemblyScriptModule:
             else:
                 return self.resolve_array(pointer)
 
-        if isclass(as_) and issubclass(as_, AssemblyScriptClass):
+        if isclass(as_) and issubclass(as_, AssemblyScriptObject):
             return as_.create(pointer=pointer, module=self)
 
         if isclass(as_) and issubclass(as_, str):
