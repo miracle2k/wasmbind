@@ -1,6 +1,8 @@
+from typing import List
+
 import pytest
 
-from wasmbind.module import WasmArray
+from wasmbind.module import AssemblyScriptArray
 
 
 def test_strings(from_code):
@@ -49,6 +51,27 @@ def test_return_an_object(from_code):
 
     foo = module.getFoo(as_=module.Foo)
     assert foo.bar == 42
+
+
+class TestResolve:
+
+    def test_resolve_integer_list(self, from_code):
+        module = from_code("""            
+        export function getList(): u8[] {
+            return [1,2,6];
+        }
+        """)
+        assert module.resolve(module.getList()) == [1,2,6]
+
+    def test_resolve_object_list(self, from_code):
+        module = from_code("""
+        export class Foo { constructor(public x: u32) {} }            
+        export function getList(): Foo[] {
+            return [new Foo(1), new Foo(4), new Foo(8)];
+        }
+        """)
+        array = module.resolve(module.getList(), as_=List[module.Foo])
+        assert [a.x for a in array] == [1, 4, 8]
 
 
 class TestRTTI:

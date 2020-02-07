@@ -156,6 +156,19 @@ This will give you a complete and fully-functional `StringMap` class in Python.
 
 ## Resolving Return Values
 
+If you have a memory address, you can do:
+
+``module.resolve()`` or ``module.resolve(as_=T)``
+
+If you have an opaque `AssemblyScriptObject`, you can do `obj.as_(T)`.
+
+Possible values for `as_`:
+
+- If not given, we'll try to auto-detect.
+- `str`
+- Any `AssemblyScriptClass` exported by the module.
+- `typing.List` or `typing.List[SomeOtherType]`, with `SomeOtherType` being any `as` value.
+
 Options for the future:
 
 ```python

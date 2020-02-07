@@ -1,6 +1,8 @@
 import dataclasses
 import functools
-from typing import Dict, Any, Iterable, Union, Optional
+from collections import Sequence
+from inspect import isclass
+from typing import Dict, Any, Iterable, Union, Optional, List, TypeVar
 import json
 
 import wasmer
@@ -30,7 +32,12 @@ class AssemblyScriptObject:
         self._module.release(self._id)
 
     def __repr__(self):
-        return f'<AssemblyScriptObject@{self._id}>'
+        return f'<{type(self).__name__}@{self._id}>'
+
+    def __eq__(self, other):
+        if isinstance(other, AssemblyScriptObject):
+            return self._id == other._id
+        return False
 
     @classmethod
     def create(cls, pointer: WasmMemPointer, *, module):
@@ -51,7 +58,7 @@ class AssemblyScriptClass(AssemblyScriptObject):
     pass
 
 
-class WasmArray(AssemblyScriptObject):
+class AssemblyScriptArray(AssemblyScriptObject, Sequence):
 
     _length = None
     _buffer_view = None
@@ -87,6 +94,13 @@ class WasmArray(AssemblyScriptObject):
             value = self._module.resolve_pointer(value)
 
         self._buffer_view[idx] = value
+
+    def __eq__(self, other):
+        if super().__eq__(other):
+            return True
+        if isinstance(other, Sequence):
+            return list(self) == other
+        return False
 
 
 def validate_index(idx: Union[int, slice], length: int) -> Union[int, slice]:
@@ -147,19 +161,30 @@ class AssemblyScriptModule:
         The reverse of `get_pointer()`.
         """
         if isinstance(pointer, AssemblyScriptObject):
+            # You should use pointer.as_() instead.
             return pointer
 
         type = self.get_type_of(pointer)
         if type.has(ARRAYBUFFERVIEW):
-            return self.resolve_array(pointer)
+            auto_detected = List
+        elif type.base_id == STRING_ID:
+            auto_detected = str
 
-        if type.base_id == STRING_ID:
-            as_ = str
+        if not as_:
+            as_ = auto_detected
 
-        if issubclass(as_, AssemblyScriptClass):
+        # What is a good istypevar() check?
+        if hasattr(as_, '__args__') and as_._name == 'List':
+            arg = as_.__args__[0]
+            if not isinstance(arg, TypeVar):
+                return self.resolve_array(pointer, managed_class=arg)
+            else:
+                return self.resolve_array(pointer)
+
+        if isclass(as_) and issubclass(as_, AssemblyScriptClass):
             return as_.create(pointer=pointer, module=self)
 
-        if issubclass(as_, str):
+        if isclass(as_) and issubclass(as_, str):
             return load_string(pointer, instance=self.instance)
 
         raise ValueError("Unsupported _as: " + str(as_))
@@ -210,7 +235,7 @@ class AssemblyScriptModule:
         view = self.instance.memory.uint32_view((pointer + REFCOUNT_OFFSET) // 4)
         return view[0]
 
-    def resolve_array(self, pointer: WasmMemPointer):
+    def resolve_array(self, pointer: WasmMemPointer, *, managed_class = None):
         """
         A live view on an array's values in the module's memory.
 
@@ -232,10 +257,10 @@ class AssemblyScriptModule:
         array_buffer_view = klass(buffer_pointer >> type.value_align)
 
         is_managed = type.has(VAL_MANAGED)
-        return WasmArray.create(
+        return AssemblyScriptArray.create(
             pointer,
             length=length, buffer_view=array_buffer_view, module=self,
-            managed_class=AssemblyScriptObject if is_managed else None)
+            managed_class=(managed_class or AssemblyScriptObject) if is_managed else None)
 
     def alloc_array(self, type_id: int, values):
         """
@@ -280,7 +305,7 @@ class AssemblyScriptModule:
         else:
             array_buffer_view[:length] = values
 
-        return WasmArray.create(
+        return AssemblyScriptArray.create(
             array_pointer, length=length, buffer_view=array_buffer_view, module=self,
             managed_class=AssemblyScriptObject if type.has(VAL_MANAGED) else None)
 
