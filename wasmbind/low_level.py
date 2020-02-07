@@ -66,3 +66,27 @@ def load_string(pointer: int, *, instance: wasmer.Instance):
     u8 = instance.memory.uint8_view(pointer)
     string_bytes = u8[:string_length]
     return bytes(string_bytes).decode('utf-16')
+
+
+def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
+    """Given the requested array configuration, return a view class that can be used over the memory segment
+    of that array, to access and write to the elements of that WASM array in Python.
+    """
+    m = instance.memory
+    if is_float:
+        # For now, wasmer does not offer view classes for this; either wait for them to add them,
+        # or implement one ourselves.
+        raise ValueError("float arrays are not yet supported.")
+    else:
+        if alignment == 0:
+            return m.int8_view if is_signed else m.uint8_view
+        if alignment == 1:
+            return m.int16_view if is_signed else m.uint16_view
+        if alignment == 2:
+            return m.int32_view if is_signed else m.uint32_view
+        if alignment == 3:
+            # For now, wasmer does not offer a view class for this; either wait for them to add one, or
+            # implement one ourselves.
+            raise ValueError("64bit arrays are not yet supported.")
+
+    raise ValueError("Invalid align value.")

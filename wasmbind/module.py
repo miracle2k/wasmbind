@@ -8,7 +8,7 @@ import wasmer
 from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_ID, ARRAYBUFFER_ID, ARRAYBUFFERVIEW, \
     ARRAY, VAL_ALIGN_OFFSET, VAL_SIGNED, VAL_FLOAT, VAL_MANAGED, ARRAYBUFFERVIEW_BUFFER_OFFSET, \
     ARRAYBUFFERVIEW_DATASTART_OFFSET, ARRAYBUFFERVIEW_DATALENGTH_OFFSET, ARRAYBUFFERVIEW_SIZE, ARRAY_LENGTH_OFFSET, \
-    ARRAY_SIZE, load_string
+    ARRAY_SIZE, load_string, get_array_view_class
 
 WasmMemPointer = int
 
@@ -41,7 +41,7 @@ class AssemblyScriptObject:
         return obj
 
     def as_(self, type):
-        return type.create(pointer=self._id, module=self._module)
+        return self._module.resolve(self._id, as_=type)
 
     def __init__(self):
         raise TypeError("Use .create()")
@@ -146,6 +146,9 @@ class AssemblyScriptModule:
         """
         The reverse of `get_pointer()`.
         """
+        if isinstance(pointer, AssemblyScriptObject):
+            return pointer
+
         type = self.get_type_of(pointer)
         if type.has(ARRAYBUFFERVIEW):
             return self.resolve_array(pointer)
@@ -153,10 +156,8 @@ class AssemblyScriptModule:
         if type.base_id == STRING_ID:
             as_ = str
 
-        if issubclass(as_, AssemblyScriptObject):
-            obj = object.__new__(as_)
-            obj.__dict__['_id'] = pointer
-            return obj
+        if issubclass(as_, AssemblyScriptClass):
+            return as_.create(pointer=pointer, module=self)
 
         if issubclass(as_, str):
             return load_string(pointer, instance=self.instance)
@@ -284,30 +285,6 @@ class AssemblyScriptModule:
             managed_class=AssemblyScriptObject if type.has(VAL_MANAGED) else None)
 
 
-def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
-    """Given the requested array configuration, return a view class that can be used over the memory segment
-    of that array, to access and write to the elements of that WASM array in Python.
-    """
-    m = instance.memory
-    if is_float:
-        # For now, wasmer does not offer view classes for this; either wait for them to add them,
-        # or implement one ourselves.
-        raise ValueError("float arrays are not yet supported.")
-    else:
-        if alignment == 0:
-            return m.int8_view if is_signed else m.uint8_view
-        if alignment == 1:
-            return m.int16_view if is_signed else m.uint16_view
-        if alignment == 2:
-            return m.int32_view if is_signed else m.uint32_view
-        if alignment == 3:
-            # For now, wasmer does not offer a view class for this; either wait for them to add one, or
-            # implement one ourselves.
-            raise ValueError("64bit arrays are not yet supported.")
-
-    raise ValueError("Invalid align value.")
-
-
 def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     """
     Replaces any `WasmRefValue` in `values` with the wasm id number.
@@ -427,7 +404,7 @@ class Module(AssemblyScriptModule):
                 exports_by_class[classname][funcname] = func
 
             elif name.startswith('__'):
-                allocator[name[2:]] = func
+                pass
 
             else:
                 classdict[name] = make_function(func, module=self)
