@@ -11,7 +11,7 @@ import wasmer
 from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_ID, ARRAYBUFFER_ID, ARRAYBUFFERVIEW, \
     ARRAY, VAL_ALIGN_OFFSET, VAL_SIGNED, VAL_FLOAT, VAL_MANAGED, ARRAYBUFFERVIEW_BUFFER_OFFSET, \
     ARRAYBUFFERVIEW_DATASTART_OFFSET, ARRAYBUFFERVIEW_DATALENGTH_OFFSET, ARRAYBUFFERVIEW_SIZE, ARRAY_LENGTH_OFFSET, \
-    ARRAY_SIZE, load_string, get_array_view_class
+    ARRAY_SIZE, load_string, get_array_view_class, allocate_string
 
 WasmMemPointer = int
 
@@ -187,8 +187,10 @@ class AssemblyScriptModule:
         type = self.get_type_of(pointer)
         if type.has(ARRAYBUFFERVIEW):
             auto_detected = List
-        elif type.base_id == STRING_ID:
+        elif type.id == STRING_ID:
             auto_detected = str
+        else:
+            auto_detected = None
 
         if not as_:
             as_ = auto_detected
@@ -357,20 +359,11 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
         if isinstance(v, AssemblyScriptObject):
             return hash(v)
 
-        elif isinstance(v, str):
-            # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L120
-            pointer = instance.exports.__alloc(len(v) * 2, STRING_ID)
-
-            buffer = instance.memory.uint8_view(pointer)
-            bytes = v.encode('utf-16le')  # Without BOM
-            buffer[:len(bytes)] = bytes
-
-            lengthview = instance.memory.uint32_view(0)
-            lengthview[int(pointer / 4) - 1] = len(bytes)
         elif isinstance(v, OpaqueValue):
             return v._id
 
-            return pointer
+        elif isinstance(v, str):
+            return allocate_string(v, instance=instance)
 
         else:
             return v

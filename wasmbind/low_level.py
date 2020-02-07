@@ -64,8 +64,25 @@ def load_string(pointer: int, *, instance: wasmer.Instance):
     string_length = u32[int((pointer + SIZE_OFFSET) / 4)]
 
     u8 = instance.memory.uint8_view(pointer)
-    string_bytes = u8[:string_length]
-    return bytes(string_bytes).decode('utf-16')
+    if string_length:
+        string_bytes = u8[:string_length]
+        return bytes(string_bytes).decode('utf-16')
+    else:
+        return ""
+
+
+def allocate_string(v: str, *, instance: wasmer.Instance):
+    # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L120
+    pointer = instance.exports.__alloc(len(v) * 2, STRING_ID)
+
+    buffer = instance.memory.uint8_view(pointer)
+    bytes = v.encode('utf-16le')  # Without BOM
+    if bytes:
+        buffer[:len(bytes)] = bytes
+
+    lengthview = instance.memory.uint32_view(0)
+    lengthview[int(pointer / 4) - 1] = len(bytes)
+    return pointer
 
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):

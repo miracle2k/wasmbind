@@ -14,6 +14,16 @@ def test_strings(from_code):
     assert module.helloworld("foo", as_=str) == 'foo:foo'
 
 
+def test_empty_string(from_code):
+    module = from_code("""
+    export function helloworld(s: string): string {
+        return s
+    }
+    """)
+
+    assert module.helloworld("", as_=str) == ''
+
+
 def test_root_function(from_code):
     module = from_code("""
     export function sum(a: i32, b: i32): i32 {
@@ -54,6 +64,12 @@ def test_return_an_object(from_code):
 
 
 class TestResolve:
+
+    def test_auto_resolve_string(self, from_code):
+        module = from_code("""            
+        export function getS(): string { return "foo"; }
+        """)
+        assert module.resolve(module.getS()) == "foo";
 
     def test_resolve_integer_list(self, from_code):
         module = from_code("""            
