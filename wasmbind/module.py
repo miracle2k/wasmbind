@@ -1,60 +1,14 @@
 import dataclasses
 import functools
-from typing import Dict, Any, Iterable, List, Tuple, Union
+from typing import Dict, Any, Iterable, Union, Optional
 import json
 
 import wasmer
 
-
-# [REFCOUNTS]: https://docs.assemblyscript.org/details/runtime#rules, https://docs.assemblyscript.org/details/runtime#working-with-references-externally
-
-
-# Before a data type, the memory stores the type and the size
-# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L3
-ID_OFFSET = -8
-SIZE_OFFSET = -4
-REFCOUNT_OFFSET = - 12
-
-
-# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L8
-STRING_ID = 1
-# An array buffer is a type, with a header, that stores array data.
-ARRAYBUFFER_ID = 0
-# A TypedArray such as UInt8Array is a dynamic type, with this id as the base id. They all follow the same memory
-# structure, which is defined as the structure of this base type.
-# A normal Array<u8> is very similar, base this as the base, but adds an extra field.
-ARRAYBUFFERVIEW_ID = 2
-
-
-# Runtime type information flags
-# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L12
-ARRAYBUFFERVIEW = 1 << 0
-ARRAY = 1 << 1
-SET = 1 << 2
-MAP = 1 << 3
-VAL_ALIGN_OFFSET = 5
-VAL_ALIGN = 1 << VAL_ALIGN_OFFSET
-VAL_SIGNED = 1 << 10
-VAL_FLOAT = 1 << 11
-VAL_NULLABLE = 1 << 12
-VAL_MANAGED = 1 << 13
-KEY_ALIGN_OFFSET = 14
-KEY_ALIGN = 1 << KEY_ALIGN_OFFSET
-KEY_SIGNED = 1 << 19
-KEY_FLOAT = 1 << 20
-KEY_NULLABLE = 1 << 21
-KEY_MANAGED = 1 << 22
-
-
-# Array(BufferView) layout
-# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L30
-ARRAYBUFFERVIEW_BUFFER_OFFSET = 0
-ARRAYBUFFERVIEW_DATASTART_OFFSET = 4
-ARRAYBUFFERVIEW_DATALENGTH_OFFSET = 8
-ARRAYBUFFERVIEW_SIZE = 12
-ARRAY_LENGTH_OFFSET = 12
-ARRAY_SIZE = 16
-
+from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_ID, ARRAYBUFFER_ID, ARRAYBUFFERVIEW, \
+    ARRAY, VAL_ALIGN_OFFSET, VAL_SIGNED, VAL_FLOAT, VAL_MANAGED, ARRAYBUFFERVIEW_BUFFER_OFFSET, \
+    ARRAYBUFFERVIEW_DATASTART_OFFSET, ARRAYBUFFERVIEW_DATALENGTH_OFFSET, ARRAYBUFFERVIEW_SIZE, ARRAY_LENGTH_OFFSET, \
+    ARRAY_SIZE, load_string
 
 WasmMemPointer = int
 
@@ -188,7 +142,7 @@ class AssemblyScriptModule:
             return instance._id
         return instance
 
-    def resolve(self, pointer: WasmMemPointer) -> AssemblyScriptObject:
+    def resolve(self, pointer: WasmMemPointer, as_: Optional[Any] = None) -> AssemblyScriptObject:
         """
         The reverse of `get_pointer()`.
         """
@@ -196,7 +150,18 @@ class AssemblyScriptModule:
         if type.has(ARRAYBUFFERVIEW):
             return self.resolve_array(pointer)
 
-        raise ValueError("Not supported")
+        if type.base_id == STRING_ID:
+            as_ = str
+
+        if issubclass(as_, AssemblyScriptObject):
+            obj = object.__new__(as_)
+            obj.__dict__['_id'] = pointer
+            return obj
+
+        if issubclass(as_, str):
+            return load_string(pointer, instance=self.instance)
+
+        raise ValueError("Unsupported _as: " + str(as_))
 
     def load_type(self, id: Union[int, RTTIType]) -> RTTIType:
         """From the RTTI section of the WASM memory, load information about the type with id `id`.
@@ -370,40 +335,18 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     return [convert(v) for v in values]
 
 
-def make_function(f, *, instance: wasmer.Instance):
+def make_function(f, *, module: AssemblyScriptModule):
     @functools.wraps(f)
     def wrapped(*args, as_=None):
-        value = f(*map_wasm_values(args, instance=instance))
+        value = f(*map_wasm_values(args, instance=module.instance))
         if as_:
-            if issubclass(as_, AssemblyScriptObject):
-                obj = object.__new__(as_)
-                obj.__dict__['_id'] = value
-                return obj
-
-            if issubclass(as_, str):
-                # Strings seems to be encoded as a utf-16 string, prefixed with a u32 giving the length.
-                # https://github.com/AssemblyScript/docs/blob/master/standard-library/string.md
-                # https://github.com/onsails/wasmer-as/blob/fe096b492d3c7a5f49214b76a7aff75fe6343c5f/src/lib.rs#L23
-                # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L43
-
-                u32 = instance.memory.uint32_view(0)
-
-                datatype = u32[int((value + ID_OFFSET) / 4)]
-                assert datatype == STRING_ID
-
-                string_length = u32[int((value + SIZE_OFFSET) / 4)]
-
-                u8 = instance.memory.uint8_view(value)
-                string_bytes = u8[:string_length]
-                return bytes(string_bytes).decode('utf-16')
-
-            raise ValueError("Unsupported _as: " + str(as_))
+            return module.resolve(value, as_=as_)
         return value
     return wrapped
 
 
-def make_method(f, *, instance):
-    return make_function(f, instance=instance)
+def make_method(f, *, module):
+    return make_function(f, module=module)
 
 
 def make_class(classname, class_exports: Dict, *, module: AssemblyScriptModule):
@@ -429,12 +372,12 @@ def make_class(classname, class_exports: Dict, *, module: AssemblyScriptModule):
                 props.setdefault(propname, {})[op] = func
                 continue
 
-        attrs[name] = make_method(func, instance=module.instance)
+        attrs[name] = make_method(func, module=module)
 
     for name, definition in props.items():
         attrs[name] = property(
-            make_method(definition['get'], instance=module.instance),
-            make_method(definition['set'], instance=module.instance) if 'set' in definition else None,
+            make_method(definition['get'], module=module),
+            make_method(definition['set'], module=module) if 'set' in definition else None,
         )
 
     def __new__(cls, *args):
@@ -472,7 +415,6 @@ class Module(AssemblyScriptModule):
         export_names = json.loads(str(instance.exports))
 
         classdict = {}
-        allocator = {}
 
         # Split the exports into classes
         exports_by_class = {}
@@ -488,7 +430,7 @@ class Module(AssemblyScriptModule):
                 allocator[name[2:]] = func
 
             else:
-                classdict[name] = make_function(func, instance=instance)
+                classdict[name] = make_function(func, module=self)
 
         # Create each class
         for classname, attrs in exports_by_class.items():
