@@ -2,7 +2,7 @@ from typing import List
 
 import pytest
 
-from wasmbind.module import AssemblyScriptArray
+from wasmbind.module import AssemblyScriptArray, OpaqueValue
 
 
 def test_strings(from_code):
@@ -196,6 +196,28 @@ class TestGarbageCollect:
         bar = module.Foo(9)
         bar_pointer = module.get_pointer(bar)
         assert bar_pointer == foo_pointer
+
+
+def test_opaque_values(from_code):
+    module = from_code("""
+    export function take(val: i32): i32 { return val; }
+    """)
+
+    # weakref disabled
+    my_map = {"x": 1}
+    wrapped_map = module.register_opaque_value(my_map)
+    assert module.take(wrapped_map, as_=OpaqueValue) == {"x": 1}
+
+    # weakref enabled
+    class Foo:
+        x = 1
+    v = Foo()
+    wrapped_map = module.register_opaque_value(v)
+    assert module.take(wrapped_map, as_=OpaqueValue) == v
+
+    wrapped_map = module.register_opaque_value(Foo())
+    with pytest.raises(ValueError):
+        assert module.take(wrapped_map, as_=OpaqueValue).x == 1
 
 
 def test_pass_objects_as_arguments(from_code):

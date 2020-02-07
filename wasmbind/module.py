@@ -4,6 +4,7 @@ from collections import Sequence
 from inspect import isclass
 from typing import Dict, Any, Iterable, Union, Optional, List, TypeVar
 import json
+from weakref import WeakValueDictionary
 
 import wasmer
 
@@ -13,6 +14,14 @@ from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_I
     ARRAY_SIZE, load_string, get_array_view_class
 
 WasmMemPointer = int
+
+
+class OpaqueValue:
+    """Represents a value registered in the modules opaque value registry.
+    """
+
+    def __init__(self, id):
+        self.id = id
 
 
 class AssemblyScriptObject:
@@ -164,6 +173,17 @@ class AssemblyScriptModule:
             # You should use pointer.as_() instead.
             return pointer
 
+        # Opaque values are special, handle them first.
+        if isclass(as_) and issubclass(as_, OpaqueValue):
+            if pointer in self._opaque_values_weak:
+                return self._opaque_values_weak[pointer]
+            elif pointer in self._opaque_values:
+                return self._opaque_values[pointer]
+            else:
+                raise ValueError("The opaque value registry only as weak references, and the value you registered no longer exists.")
+
+        # Since the use of as_ implies that this is an AssemlblyScript object, we can check what the type really
+        # is. This can serve for auto-detecting the type, or warning the user that the desired type is wrong.
         type = self.get_type_of(pointer)
         if type.has(ARRAYBUFFERVIEW):
             auto_detected = List
@@ -309,6 +329,25 @@ class AssemblyScriptModule:
             array_pointer, length=length, buffer_view=array_buffer_view, module=self,
             managed_class=AssemblyScriptObject if type.has(VAL_MANAGED) else None)
 
+    _opaque_values_weak = WeakValueDictionary()
+    _opaque_values = {}
+    _last_opaque_id = 0
+    def register_opaque_value(self, value):
+        """Register a value in a Python-side only registry. You will receive an integer you can pass to
+        AssemblyScript, which can pass it back out, and it will resolve to the original value.
+        """
+        self._last_opaque_id += 1
+        obj = object.__new__(OpaqueValue)
+        obj._id = self._last_opaque_id
+
+        # Builtin types do not support weekrefs, but we do not want to hold on to references if we don't have to.
+        # https://stackoverflow.com/a/52011601/15677
+        if getattr(type(value), '__weakrefoffset__', 0) > 0:
+            self._opaque_values_weak[obj._id] = value
+        else:
+            self._opaque_values[obj._id] = value
+        return obj
+
 
 def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
     """
@@ -328,6 +367,8 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
 
             lengthview = instance.memory.uint32_view(0)
             lengthview[int(pointer / 4) - 1] = len(bytes)
+        elif isinstance(v, OpaqueValue):
+            return v._id
 
             return pointer
 

@@ -182,6 +182,32 @@ module = Module(instance, value_handler=auto_resolve)
 module = Module(instance, class_registry={})
 ```
 
+## Opaque Values
+
+Sometimes it can be nice to pass data structures to AssemblyScript that you just want to keep as-is, without 
+AssemblyScript touching them, and getting them back; in particular, when dealing with complex data structures.
+
+To help support this case, `wasmbind` supports a mechanism by which:
+
+- You can put an arbitrary Python value into a local registry.
+- You'll be given an opaque object that you can pass to AssemblyScript functions.
+- AssemblyScript will see an integer (we start counting at 1, so it's up to you if you want to use u8, u32, ...)
+- When a value comes out of AssemblyScript, you need to instruct `wasmbind`, using the regular mechanisms, to
+  resolve this opaque pointer as a `wasmbind.OpaqueValue` instance.
+  
+Here is an example:
+
+```typescript
+export function take(val: u8): u8 { return val; }
+```
+
+```python
+from wasmbind import OpaqueValue
+my_map = {"x": 1}
+wrapped_map = module.register_opaque_value(my_map)
+assert module.take(wrapped_map, as_=OpaqueValue) == {"x": 1}
+```
+ 
 
 ## Notes
 
