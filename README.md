@@ -54,9 +54,16 @@ export function helloworld(name: string): string {
 ```
 
 ```python
->>> module.helloworld("michael")
+>>> module.helloworld("michael", as_=str)
 "hello, michael"
 ```
+
+You'll note that you have to specificy the desired return type via `as_`. This is because WASM only
+gives us a pointer to a memory location, and we otherwise have no idea what the type is. See the section
+`Resolving Return Values` for other options.
+
+Passing values *into* AssemblyScript works, because we know it the type. In this case, we can allocate
+a `string` on the AssemblyScript side and pass the pointer to it into `helloworld`.
 
 Note: You'll get a real Python `str` from AssemblyScript, and you are expected to pass real `str` 
 objects to AssemblyScript functions. Strings are immutable in AssemblyScript and Python. Those
@@ -64,7 +71,7 @@ things mean that for the boundary Python <-> AssemblyScript, they are passed by 
 reference counting is involved.
 
 
-#### Properties
+#### Objects & Properties
 
 ```typescript
 export class File {
@@ -144,6 +151,22 @@ export class StringMap extends Map<string, string> {};
 ```
 
 This will give you a complete and fully-functional `StringMap` class in Python.
+
+
+## Resolving Return Values
+
+Options for the future:
+
+```python
+# Every return value is a a Opaque Type that you can either call .native() on or .as().
+module = Module(instance, value_handler=wrap_opaque)
+
+# Every return value is auto-instantiated via the object header 
+module = Module(instance, value_handler=auto_resolve)
+
+# Using mypy to predefine the return types of each method and function call. 
+module = Module(instance, class_registry={})
+```
 
 
 ## Notes
