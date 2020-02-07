@@ -86,6 +86,9 @@ class AssemblyScriptObject:
         module.retain(pointer)
         return obj
 
+    def as_(self, type):
+        return type.create(pointer=self._id, module=self._module)
+
     def __init__(self):
         raise TypeError("Use .create()")
 
