@@ -351,19 +351,19 @@ class AssemblyScriptModule:
         return obj
 
 
-def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
+def map_wasm_values(values: Iterable[Any], *, module: AssemblyScriptModule):
     """
     Replaces any `WasmRefValue` in `values` with the wasm id number.
     """
     def convert(v):
         if isinstance(v, AssemblyScriptObject):
-            return hash(v)
+            return module.get_pointer(v)
 
         elif isinstance(v, OpaqueValue):
             return v._id
 
         elif isinstance(v, str):
-            return allocate_string(v, instance=instance)
+            return allocate_string(v, instance=module.instance)
 
         else:
             return v
@@ -374,7 +374,7 @@ def map_wasm_values(values: Iterable[Any], *, instance: wasmer.Instance):
 def make_function(f, *, module: AssemblyScriptModule):
     @functools.wraps(f)
     def wrapped(*args, as_=None):
-        value = f(*map_wasm_values(args, instance=module.instance))
+        value = f(*map_wasm_values(args, module=module))
         if as_:
             return module.resolve(value, as_=as_)
         return value
@@ -418,7 +418,7 @@ def make_class(classname, class_exports: Dict, *, module: AssemblyScriptModule):
 
     def __new__(cls, *args):
         # [REFCOUNTS] The object returned by a class constructor is auto-retained (refcount = 1)
-        _id = ctor(0, *map_wasm_values(args, instance=module.instance))
+        _id = ctor(0, *map_wasm_values(args, module=module))
         obj = object.__new__(cls)
         obj._id = _id
         return obj
