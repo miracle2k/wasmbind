@@ -56,7 +56,7 @@ export function helloworld(name: string): string {
 "hello, michael" 
 ```
 
-Properties:
+#### Properties
 
 ```typescript
 export class File {
@@ -75,7 +75,7 @@ export class File {
 10
 ```
 
-Objects:
+#### Objects
 
 ```typescript
 export class Line {
@@ -102,6 +102,40 @@ export class File {
 >>> file.addLine(line)
 1
 ```
+
+#### Maps and other generic types
+ 
+Let's say you have a function that takes a map as an argument:
+
+```typescript
+export function getMap(): Map<string, i32> {
+  return new Map();
+}
+```
+
+First, if you look into this module's exports, you will note that there is only `getMap()`. The 
+`Map` class itself was not exported. 
+
+Now, if you add `export {Map}`, depending on your code, you might see exports such as:
+
+```
+'Map<~lib/string/String,~lib/string/String>#get', 'Map<i32,i32>#constructor', 'Map<i32,i32>#clear'
+```
+
+Every concrete version of the generic `Map` type is exported separately, the names aren't 
+very nice, and finally, the classes are incomplete: Only methods which were used at some
+point in your code are exported, the rest, I assume, have been optimized away.
+
+Currently, `wasmbind` does not do anything special with those exports, which means you can
+use them, but they are not very accessible.
+
+The best way to use a map, which I have found so far, is this:
+
+```typescript
+export class StringMap extends Map<string, string> {};
+```
+
+This will give you a complete and fully-functional `StringMap` class in Python.
 
 
 ## Notes
