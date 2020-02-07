@@ -63,18 +63,42 @@ class WasmClass:
     """This base class indicates the subclass returns the wasm id via hash().
     """
 
+    _id: str
+    _module = None
+
+    @classmethod
+    def create(cls, pointer: WasmMemPointer, *, module):
+        obj = object.__new__(cls)
+        obj._id = pointer
+        obj._module = module
+        module.retain(pointer)
+        return obj
+
     def __hash__(self):
         return self._id
+
+    def __del__(self):
+        self._module.release(self._id)
+
+    def __repr__(self):
+        return f'<AssemblyScriptObject@{self._id}>'
 
 
 class WasmArray(WasmClass):
 
+    _length = None
+    _buffer_view = None
+    _managed_class = None
+
+    # noinspection PyMethodOverriding
     @classmethod
-    def wrap(cls, pointer: WasmMemPointer, *, length: int, buffer_view):
-        array = object.__new__(WasmArray)
+    def create(cls, pointer: WasmMemPointer, *, length: int, buffer_view, managed_class=None, module):
+        array = super().create(pointer, module=module)
         array._length = length
         array._buffer_view = buffer_view
         array._id = pointer
+        array._managed_class = managed_class
+        array._module = module
         return array
 
     def __len__(self):
@@ -82,10 +106,19 @@ class WasmArray(WasmClass):
 
     def __getitem__(self, idx: int):
         idx = validate_index(idx, self._length)
-        return self._buffer_view[idx]
+        value = self._buffer_view[idx]
+
+        if self._managed_class:
+            return self._managed_class.create(value, module=self._module)
+
+        return value
 
     def __setitem__(self, idx: int, value):
         idx = validate_index(idx, self._length)
+
+        if self._managed_class:
+            value = self._module.resolve_pointer(value)
+
         self._buffer_view[idx] = value
 
 
@@ -142,6 +175,16 @@ class AssemblyScriptModule:
             return instance._id
         return instance
 
+    def resolve(self, pointer: WasmMemPointer) -> WasmClass:
+        """
+        The reverse of `get_pointer()`.
+        """
+        type = self.get_type_of(pointer)
+        if type.has(ARRAYBUFFERVIEW):
+            return self.resolve_array(pointer)
+
+        raise ValueError("Not supported")
+
     def load_type(self, id: Union[int, RTTIType]) -> RTTIType:
         """From the RTTI section of the WASM memory, load information about the type with id `id`.
 
@@ -188,6 +231,33 @@ class AssemblyScriptModule:
         view = self.instance.memory.uint32_view((pointer + REFCOUNT_OFFSET) // 4)
         return view[0]
 
+    def resolve_array(self, pointer: WasmMemPointer):
+        """
+        A live view on an array's values in the module's memory.
+
+        Infers the array type from RTTI.
+        """
+        type = self.get_type_of(pointer)
+        if not type.has(ARRAYBUFFERVIEW):
+            raise TypeError(f"The object at {pointer} is not an array.")
+
+        u32_view = self.instance.memory.uint32_view()
+
+        buffer_pointer = u32_view[(pointer + ARRAYBUFFERVIEW_DATASTART_OFFSET) // 4]
+        length = u32_view[(pointer + ARRAY_LENGTH_OFFSET) // 4] \
+            if type.has(ARRAY) \
+            else u32_view[(buffer_pointer + SIZE_OFFSET) // 4]
+
+        klass = get_array_view_class(
+            self.instance, is_float=type.has(VAL_FLOAT), is_signed=type.has(VAL_SIGNED), alignment=type.value_align)
+        array_buffer_view = klass(buffer_pointer >> type.value_align)
+
+        is_managed = type.has(VAL_MANAGED)
+        return WasmArray.create(
+            pointer,
+            length=length, buffer_view=array_buffer_view, module=self,
+            managed_class=WasmClass if is_managed else None)
+
     def alloc_array(self, type_id: int, values):
         """
         Allocate an array.
@@ -231,8 +301,9 @@ class AssemblyScriptModule:
         else:
             array_buffer_view[:length] = values
 
-        self.retain(array_pointer)
-        return WasmArray.wrap(array_pointer, length=length, buffer_view=array_buffer_view)
+        return WasmArray.create(
+            array_pointer, length=length, buffer_view=array_buffer_view, module=self,
+            managed_class=WasmClass if type.has(VAL_MANAGED) else None)
 
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
@@ -322,7 +393,7 @@ def make_method(f, *, instance):
     return make_function(f, instance=instance)
 
 
-def make_class(classname, class_exports: Dict, *, instance: wasmer.Instance):
+def make_class(classname, class_exports: Dict, *, module: AssemblyScriptModule):
     """Create a Python class from a AssemblyScript class.
 
     It:
@@ -345,24 +416,28 @@ def make_class(classname, class_exports: Dict, *, instance: wasmer.Instance):
                 props.setdefault(propname, {})[op] = func
                 continue
 
-        attrs[name] = make_method(func, instance=instance)
+        attrs[name] = make_method(func, instance=module.instance)
 
     for name, definition in props.items():
         attrs[name] = property(
-            make_method(definition['get'], instance=instance),
-            make_method(definition['set'], instance=instance),
+            make_method(definition['get'], instance=module.instance),
+            make_method(definition['set'], instance=module.instance) if 'set' in definition else None,
         )
 
-    def __init__(self, *args):
+    def __new__(cls, *args):
         # [REFCOUNTS] The object returned by a class constructor is auto-retained (refcount = 1)
-        self._id = ctor(0, *map_wasm_values(args, instance=instance))
+        _id = ctor(0, *map_wasm_values(args, instance=module.instance))
+        obj = object.__new__(cls)
+        obj._id = _id
+        return obj
 
-    def __del__(self):
-        instance.exports.__release(self._id)
+    def wrap(cls, pointer: WasmMemPointer):
+        return cls.create(pointer, module=module)
 
     attrs.update({
-        '__init__': __init__,
-        '__del__': __del__,
+        '_module': module,
+        '__new__': __new__,
+        'wrap': classmethod(wrap)
     })
 
     return type(classname, (WasmClass,), attrs)
@@ -400,7 +475,7 @@ class Module(AssemblyScriptModule):
 
         # Create each class
         for classname, attrs in exports_by_class.items():
-            classdict[classname] = make_class(classname, attrs, instance=instance)
+            classdict[classname] = make_class(classname, attrs, module=self)
 
         self.__dict__.update(classdict)
 
