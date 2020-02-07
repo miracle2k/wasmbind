@@ -15,9 +15,11 @@ you need to run on git master. The released version does not allow us to access 
 
 ## Features
 
-Supported: 
+Features: 
 
-- Ability to exchange strings and custom classes.
+- ✅ Strings, Arrays, Maps, Custom Classes.
+- ✅ Work with AssemblyScript objects in Python.
+- ✅ Instantiate new AssemblyScript objects in Python. 
 
 Future plans:
 
@@ -28,6 +30,7 @@ Future plans:
       similar to [as-bind](https://github.com/torch2424/as-bind/blob/97353ef6f8e39a4277957079b5d6a9e7d85ee709/lib/assembly/as-bind.ts)
 - [ ] Investigate an alternative approach wherein you predefine classes (with types) in Python code.
 - [ ] Allow creation of types without a constructor.
+
 
 ## Usage
 
@@ -43,7 +46,7 @@ module = Module(wasm)
 
 Here are some sample interactions.
 
-With strings:
+#### Strings
 
 ```typescript
 export function helloworld(name: string): string {
