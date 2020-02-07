@@ -23,7 +23,6 @@ Features:
 
 Future plans:
 
-- [ ] Ensure correct memory management for strings.
 - [ ] Allow wrapping arrays returned from WASM.
 - [ ] Improve these docs.
 - [ ] See if we can use RTTI to remove the need for a manual `as_`. We might have to create a class registry
@@ -56,8 +55,14 @@ export function helloworld(name: string): string {
 
 ```python
 >>> module.helloworld("michael")
-"hello, michael" 
+"hello, michael"
 ```
+
+Note: You'll get a real Python `str` from AssemblyScript, and you are expected to pass real `str` 
+objects to AssemblyScript functions. Strings are immutable in AssemblyScript and Python. Those
+things mean that for the boundary Python <-> AssemblyScript, they are passed by value and copied. No
+reference counting is involved.
+
 
 #### Properties
 
