@@ -322,8 +322,11 @@ class AssemblyScriptModule:
             for idx, value in enumerate(values):
                 # For now, only allow classes to be added for consistency; we don't want to deal with ref counting
                 # pointer values.
-                assert isinstance(value, AssemblyScriptObject)
-                array_buffer_view[idx] = self.retain(self.get_pointer(value))
+                if isinstance(value, str):
+                    array_buffer_view[idx] = allocate_string(value, instance=self.instance)
+                else:
+                    assert isinstance(value, AssemblyScriptObject)
+                    array_buffer_view[idx] = self.retain(self.get_pointer(value))
         else:
             array_buffer_view[:length] = values
 
@@ -351,24 +354,25 @@ class AssemblyScriptModule:
         return obj
 
 
+def convert(v, *, module: AssemblyScriptModule):
+    if isinstance(v, AssemblyScriptObject):
+        return module.get_pointer(v)
+
+    elif isinstance(v, OpaqueValue):
+        return v._id
+
+    elif isinstance(v, str):
+        return allocate_string(v, instance=module.instance)
+
+    else:
+        return v
+
+
 def map_wasm_values(values: Iterable[Any], *, module: AssemblyScriptModule):
     """
     Replaces any `WasmRefValue` in `values` with the wasm id number.
     """
-    def convert(v):
-        if isinstance(v, AssemblyScriptObject):
-            return module.get_pointer(v)
-
-        elif isinstance(v, OpaqueValue):
-            return v._id
-
-        elif isinstance(v, str):
-            return allocate_string(v, instance=module.instance)
-
-        else:
-            return v
-
-    return [convert(v) for v in values]
+    return [convert(v, module=module) for v in values]
 
 
 def make_function(f, *, module: AssemblyScriptModule):
