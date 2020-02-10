@@ -2,6 +2,7 @@
 name = "wasmbind"
 version = "0.2.1"
 description = ""
+readme = "README.md"
 authors = ["Michael Elsdörfer <michael@elsdoerfer.info>"]
 
 [tool.poetry.dependencies]
