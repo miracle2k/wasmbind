@@ -34,9 +34,6 @@ class AssemblyScriptObject:
     _id: str
     _module = None
 
-    def __hash__(self):
-        return self._id
-
     def __del__(self):
         self._module.release(self._id)
 
@@ -117,7 +114,7 @@ def validate_index(idx: Union[int, slice], length: int) -> Union[int, slice]:
         return slice(idx.start, min(idx.stop, length), idx.step)
 
     if idx >= length:
-        raise IndexError(max)
+        raise IndexError(idx)
 
     return idx
 
@@ -323,7 +320,7 @@ class AssemblyScriptModule:
                 # For now, only allow classes to be added for consistency; we don't want to deal with ref counting
                 # pointer values.
                 if isinstance(value, str):
-                    array_buffer_view[idx] = allocate_string(value, instance=self.instance)
+                    array_buffer_view[idx] = self.retain(allocate_string(value, instance=self.instance))
                 else:
                     assert isinstance(value, AssemblyScriptObject)
                     array_buffer_view[idx] = self.retain(self.get_pointer(value))

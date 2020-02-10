@@ -112,7 +112,25 @@ class TestArrays:
             }
         }        
         """)
-        assert(module.Foo().getNumbers(), int)
+        assert isinstance(module.Foo().getNumbers(), int)
+
+    def test_array_of_strings(self, from_code):
+        module = from_code("""
+        export function rungc(): void { gc.collect(); }
+        export const StringArray = idof<string[]>();        
+        """)
+
+        # If the array does not hold a reference to it's strings, 
+        # we'd have a crash during __del__
+        arr = module.alloc_array(module.StringArray, ["sdf", "foo"])
+
+        # There are two references. One is the array, one is the string
+        # returned by arr[0]
+        assert module.get_refcount_of(arr[0]) == 2
+    
+        assert arr.as_(List[str])[0] == "sdf"
+        assert arr[0].as_(str) == "sdf"
+        assert arr[1].as_(str) == "foo"
 
     def test_alloc_invalid_array(self, from_code):
         module = from_code("""
