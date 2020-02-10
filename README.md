@@ -25,6 +25,7 @@ Future plans:
 
 - [ ] Allow wrapping arrays returned from WASM.
 - [ ] Improve array allocation by finding available types in RTTI.
+- [ ] Support imports (needs [#28](https://github.com/wasmerio/python-ext-wasm/issues/28))
 - [ ] Improve these docs.
 - [ ] See if we can use RTTI to remove the need for a manual `as_`. We might have to create a class registry
       similar to [as-bind](https://github.com/torch2424/as-bind/blob/97353ef6f8e39a4277957079b5d6a9e7d85ee709/lib/assembly/as-bind.ts)
