@@ -7,7 +7,7 @@ import wasmer
 
 ID_OFFSET = -8
 SIZE_OFFSET = -4
-REFCOUNT_OFFSET = - 12
+REFCOUNT_OFFSET = -12
 
 
 # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L8
@@ -21,23 +21,24 @@ ARRAYBUFFERVIEW_ID = 2
 
 
 # Runtime type information flags
-# https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L12
+# https://github.com/AssemblyScript/assemblyscript/blob/ed7570fa67c2e56969efff94c7066865482e9c6c/lib/loader/index.js#L12
 ARRAYBUFFERVIEW = 1 << 0
 ARRAY = 1 << 1
-SET = 1 << 2
-MAP = 1 << 3
-VAL_ALIGN_OFFSET = 5
+STATICARRAY = 1 << 2
+SET = 1 << 3
+MAP = 1 << 4
+VAL_ALIGN_OFFSET = 6
 VAL_ALIGN = 1 << VAL_ALIGN_OFFSET
-VAL_SIGNED = 1 << 10
-VAL_FLOAT = 1 << 11
-VAL_NULLABLE = 1 << 12
-VAL_MANAGED = 1 << 13
-KEY_ALIGN_OFFSET = 14
+VAL_SIGNED = 1 << 11
+VAL_FLOAT = 1 << 12
+VAL_NULLABLE = 1 << 13
+VAL_MANAGED = 1 << 14
+KEY_ALIGN_OFFSET = 15
 KEY_ALIGN = 1 << KEY_ALIGN_OFFSET
-KEY_SIGNED = 1 << 19
-KEY_FLOAT = 1 << 20
-KEY_NULLABLE = 1 << 21
-KEY_MANAGED = 1 << 22
+KEY_SIGNED = 1 << 20
+KEY_FLOAT = 1 << 21
+KEY_NULLABLE = 1 << 22
+KEY_MANAGED = 1 << 23
 
 
 # Array(BufferView) layout

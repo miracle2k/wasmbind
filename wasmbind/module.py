@@ -184,6 +184,8 @@ class AssemblyScriptModule:
         type = self.get_type_of(pointer)
         if type.has(ARRAYBUFFERVIEW):
             auto_detected = List
+        elif type.has(ARRAY):
+            auto_detected = List
         elif type.id == STRING_ID:
             auto_detected = str
         else:
@@ -261,7 +263,7 @@ class AssemblyScriptModule:
         Infers the array type from RTTI.
         """
         type = self.get_type_of(pointer)
-        if not type.has(ARRAYBUFFERVIEW):
+        if not (type.has(ARRAYBUFFERVIEW) or type.has(ARRAY)):
             raise TypeError(f"The object at {pointer} is not an array.")
 
         u32_view = self.instance.memory.uint32_view()
