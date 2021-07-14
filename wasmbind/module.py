@@ -145,15 +145,19 @@ class AssemblyScriptModule:
 
     @property
     def alloc(self):
-        return getattr(self.instance.exports, '__alloc')
+        return getattr(self.instance.exports, '__new')
 
     @property
     def retain(self):
-        return getattr(self.instance.exports, '__retain')
+        return getattr(self.instance.exports, '__pin')
 
     @property
     def release(self):
-        return getattr(self.instance.exports, '__release')
+        return getattr(self.instance.exports, '__unpin')
+
+    @property
+    def collect(self):
+        return getattr(self.instance.exports, '__collect')
 
     def get_pointer(self, instance: Union[WasmMemPointer, AssemblyScriptObject]) -> WasmMemPointer:
         """Resolve a Python wrapper class to the AssemblyScript pointer.
