@@ -65,38 +65,44 @@ def load_string(pointer: int, *, instance: wasmer.Instance):
     # https://github.com/onsails/wasmer-as/blob/fe096b492d3c7a5f49214b76a7aff75fe6343c5f/src/lib.rs#L23
     # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L43
 
-    memory = get_instance_memory(instance)
+    mybytes = _load_type_bytes(pointer, STRING_ID, instance=instance)
+    return mybytes.decode('utf-16')
 
-    u32 = memory.uint32_view(0)
+def load_bytes(pointer: int, *, instance: wasmer.Instance):
+    return _load_type_bytes(pointer, ARRAYBUFFER_ID, instance=instance)
+
+def _load_type_bytes(pointer: int, need_type: int, *, instance: wasmer.Instance):
+    u32 = get_instance_memory(instance).uint32_view(0)
 
     datatype = u32[int((pointer + ID_OFFSET) / 4)]
-    assert datatype == STRING_ID
+    assert datatype == need_type
 
-    string_length = u32[int((pointer + SIZE_OFFSET) / 4)]
+    bytes_length = u32[int((pointer + SIZE_OFFSET) / 4)]
 
-    u8 = memory.uint8_view(pointer)
-    if string_length:
-        string_bytes = u8[:string_length]
-        return bytes(string_bytes).decode('utf-16')
+    u8 = get_instance_memory(instance).uint8_view(pointer)
+    if bytes_length:
+        string_bytes = u8[:bytes_length]
+        return bytes(string_bytes)
     else:
-        return ""
-
+        return b""
 
 def allocate_string(v: str, *, instance: wasmer.Instance):
     # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L120
-    pointer = instance.exports.__alloc(len(v) * 2, STRING_ID)
-
-    memory = get_instance_memory(instance)
-
-    buffer = memory.uint8_view(pointer)
     bytes = v.encode('utf-16le')  # Without BOM
-    if bytes:
-        buffer[:len(bytes)] = bytes
+    return _allocate_bytes(bytes, STRING_ID, instance);
 
-    lengthview = memory.uint32_view(0)
-    lengthview[int(pointer / 4) - 1] = len(bytes)
+def allocate_arraybuffer(v: bytes, *, instance: wasmer.Instance):
+    return _allocate_bytes(v, ARRAYBUFFER_ID, instance);
+
+def _allocate_bytes(vbytes: bytes, type_id: int, instance: wasmer.Instance):
+    pointer = instance.exports.__new(len(vbytes), type_id)
+
+    buffer = get_instance_memory(instance).uint8_view(pointer)
+    buffer[:len(vbytes)] = vbytes
+
+    lengthview = get_instance_memory(instance).uint32_view(0)
+    lengthview[int(pointer / 4) - 1] = len(vbytes)
     return pointer
-
 
 def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment: int, is_signed: bool):
     """Given the requested array configuration, return a view class that can be used over the memory segment
