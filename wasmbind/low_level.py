@@ -51,20 +51,30 @@ ARRAY_LENGTH_OFFSET = 12
 ARRAY_SIZE = 16
 
 
+def get_instance_memory (instance: wasmer.Instance):
+    for export_kv in instance.exports:
+        (name, exported) = export_kv
+        if isinstance(exported, wasmer.Memory):
+            return exported
+
+    return
+
 def load_string(pointer: int, *, instance: wasmer.Instance):
     # Strings seems to be encoded as a utf-16 string, prefixed with a u32 giving the length.
     # https://github.com/AssemblyScript/docs/blob/master/standard-library/string.md
     # https://github.com/onsails/wasmer-as/blob/fe096b492d3c7a5f49214b76a7aff75fe6343c5f/src/lib.rs#L23
     # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L43
 
-    u32 = instance.memory.uint32_view(0)
+    memory = get_instance_memory(instance)
+
+    u32 = memory.uint32_view(0)
 
     datatype = u32[int((pointer + ID_OFFSET) / 4)]
     assert datatype == STRING_ID
 
     string_length = u32[int((pointer + SIZE_OFFSET) / 4)]
 
-    u8 = instance.memory.uint8_view(pointer)
+    u8 = memory.uint8_view(pointer)
     if string_length:
         string_bytes = u8[:string_length]
         return bytes(string_bytes).decode('utf-16')
@@ -76,12 +86,14 @@ def allocate_string(v: str, *, instance: wasmer.Instance):
     # https://github.com/AssemblyScript/assemblyscript/blob/e79155b86b1ea29798a1d7d38dbe4a443c91310b/lib/loader/index.js#L120
     pointer = instance.exports.__alloc(len(v) * 2, STRING_ID)
 
-    buffer = instance.memory.uint8_view(pointer)
+    memory = get_instance_memory(instance)
+
+    buffer = memory.uint8_view(pointer)
     bytes = v.encode('utf-16le')  # Without BOM
     if bytes:
         buffer[:len(bytes)] = bytes
 
-    lengthview = instance.memory.uint32_view(0)
+    lengthview = memory.uint32_view(0)
     lengthview[int(pointer / 4) - 1] = len(bytes)
     return pointer
 
@@ -90,7 +102,7 @@ def get_array_view_class(instance: wasmer.Instance, *, is_float: bool, alignment
     """Given the requested array configuration, return a view class that can be used over the memory segment
     of that array, to access and write to the elements of that WASM array in Python.
     """
-    m = instance.memory
+    m = get_instance_memory(instance)
     if is_float:
         # For now, wasmer does not offer view classes for this; either wait for them to add them,
         # or implement one ourselves.

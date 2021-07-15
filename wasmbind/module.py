@@ -3,7 +3,6 @@ import functools
 from collections import Sequence
 from inspect import isclass
 from typing import Dict, Any, Iterable, Union, Optional, List, TypeVar
-import json
 from weakref import WeakValueDictionary
 
 import wasmer
@@ -11,7 +10,8 @@ import wasmer
 from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_ID, ARRAYBUFFER_ID, ARRAYBUFFERVIEW, \
     ARRAY, VAL_ALIGN_OFFSET, VAL_SIGNED, VAL_FLOAT, VAL_MANAGED, ARRAYBUFFERVIEW_BUFFER_OFFSET, \
     ARRAYBUFFERVIEW_DATASTART_OFFSET, ARRAYBUFFERVIEW_DATALENGTH_OFFSET, ARRAYBUFFERVIEW_SIZE, ARRAY_LENGTH_OFFSET, \
-    ARRAY_SIZE, load_string, get_array_view_class, allocate_string
+    ARRAY_SIZE, load_string, get_array_view_class, allocate_string, \
+    get_instance_memory
 
 WasmMemPointer = int
 
@@ -145,15 +145,19 @@ class AssemblyScriptModule:
 
     @property
     def alloc(self):
-        return getattr(self.instance.exports, '__alloc')
+        return getattr(self.instance.exports, '__new')
 
     @property
     def retain(self):
-        return getattr(self.instance.exports, '__retain')
+        return getattr(self.instance.exports, '__pin')
 
     @property
     def release(self):
-        return getattr(self.instance.exports, '__release')
+        return getattr(self.instance.exports, '__unpin')
+
+    @property
+    def collect(self):
+        return getattr(self.instance.exports, '__collect')
 
     def get_pointer(self, instance: Union[WasmMemPointer, AssemblyScriptObject]) -> WasmMemPointer:
         """Resolve a Python wrapper class to the AssemblyScript pointer.
@@ -230,11 +234,14 @@ class AssemblyScriptModule:
         if isinstance(id, RTTIType):
             return id
 
-        rtti_base = getattr(self.instance.globals, '__rtti_base')
+        rtti_base = getattr(self.instance.exports, '__rtti_base')
         if not rtti_base:
             # AssemblyScript loader says "oop" in this case. I don't understand that or the code path.
             raise ValueError('RTTI table not found.')
-        view = self.instance.memory.uint32_view(rtti_base.value // 4)
+
+        assert isinstance(rtti_base, wasmer.Global)
+
+        view = get_instance_memory(self.instance).uint32_view(rtti_base.value // 4)
         count = view[0]
         assert id < count
 
@@ -245,7 +252,7 @@ class AssemblyScriptModule:
         """Return the type of a pointer.
         """
         pointer = self.get_pointer(pointer)
-        view = self.instance.memory.uint32_view((pointer + ID_OFFSET) // 4)
+        view = get_instance_memory(self.instance).uint32_view((pointer + ID_OFFSET) // 4)
         type_id = view[0]
         return self.load_type(type_id)
 
@@ -253,7 +260,7 @@ class AssemblyScriptModule:
         """Return the refcount of a pointer.
         """
         pointer = self.get_pointer(pointer)
-        view = self.instance.memory.uint32_view((pointer + REFCOUNT_OFFSET) // 4)
+        view = get_instance_memory(self.instance).uint32_view((pointer + REFCOUNT_OFFSET) // 4)
         return view[0]
 
     def resolve_array(self, pointer: WasmMemPointer, *, managed_class = None):
@@ -266,7 +273,7 @@ class AssemblyScriptModule:
         if not (type.has(ARRAYBUFFERVIEW) or type.has(ARRAY)):
             raise TypeError(f"The object at {pointer} is not an array.")
 
-        u32_view = self.instance.memory.uint32_view()
+        u32_view = get_instance_memory(self.instance).uint32_view()
 
         buffer_pointer = u32_view[(pointer + ARRAYBUFFERVIEW_DATASTART_OFFSET) // 4]
         length = u32_view[(pointer + ARRAY_LENGTH_OFFSET) // 4] \
@@ -304,7 +311,7 @@ class AssemblyScriptModule:
 
         # Allocate an array
         array_pointer = self.alloc(ARRAY_SIZE if type.has(ARRAY) else ARRAYBUFFERVIEW_SIZE, type_id)
-        array_view = self.instance.memory.uint32_view(array_pointer // 4)
+        array_view = get_instance_memory(self.instance).uint32_view(array_pointer // 4)
         array_view[ARRAYBUFFERVIEW_BUFFER_OFFSET // 4] = self.retain(array_buffer_pointer)
         array_view[ARRAYBUFFERVIEW_DATASTART_OFFSET // 4] = array_buffer_pointer
         array_view[ARRAYBUFFERVIEW_DATALENGTH_OFFSET // 4] = length << align
@@ -450,15 +457,16 @@ class Module(AssemblyScriptModule):
     def __init__(self, instance: wasmer.Instance):
         AssemblyScriptModule.__init__(self, instance)
 
-        # The only way to get those from wasmer-ext.
-        export_names = json.loads(str(instance.exports))
-
         classdict = {}
 
         # Split the exports into classes
         exports_by_class = {}
-        for name in export_names:
-            func = getattr(instance.exports, name)
+
+        for export_kv in instance.exports:
+            (name, func) = export_kv
+
+            if not isinstance(func, wasmer.Function):
+                pass
 
             if '#' in name:
                 classname, funcname = name.split('#', 1)
@@ -478,4 +486,6 @@ class Module(AssemblyScriptModule):
         self.__dict__.update(classdict)
 
     def __getattr__(self, item):
-        return getattr(self.instance.globals, item).value
+        export = getattr(self.instance.exports, item)
+        if isinstance(export, wasmer.Global):
+            return export.value
