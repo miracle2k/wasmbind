@@ -11,7 +11,7 @@ from wasmbind.low_level import ID_OFFSET, SIZE_OFFSET, REFCOUNT_OFFSET, STRING_I
     ARRAY, VAL_ALIGN_OFFSET, VAL_SIGNED, VAL_FLOAT, VAL_MANAGED, ARRAYBUFFERVIEW_BUFFER_OFFSET, \
     ARRAYBUFFERVIEW_DATASTART_OFFSET, ARRAYBUFFERVIEW_DATALENGTH_OFFSET, ARRAYBUFFERVIEW_SIZE, ARRAY_LENGTH_OFFSET, \
     ARRAY_SIZE, load_string, get_array_view_class, allocate_string, \
-    get_instance_memory
+    get_instance_memory, load_bytes, allocate_arraybuffer
 
 WasmMemPointer = int
 
@@ -192,6 +192,8 @@ class AssemblyScriptModule:
             auto_detected = List
         elif type.id == STRING_ID:
             auto_detected = str
+        elif type.id == ARRAYBUFFER_ID:
+            auto_detected = bytes
         else:
             auto_detected = None
 
@@ -211,6 +213,9 @@ class AssemblyScriptModule:
 
         if isclass(as_) and issubclass(as_, str):
             return load_string(pointer, instance=self.instance)
+
+        if isclass(as_) and issubclass(as_, bytes):
+            return load_bytes(pointer, instance=self.instance)
 
         raise ValueError("Unsupported _as: " + str(as_))
 
@@ -369,6 +374,9 @@ def convert(v, *, module: AssemblyScriptModule):
 
     elif isinstance(v, str):
         return allocate_string(v, instance=module.instance)
+
+    elif isinstance(v, bytes):
+        return allocate_arraybuffer(v, instance=module.instance)
 
     else:
         return v

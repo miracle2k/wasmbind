@@ -17,7 +17,7 @@ you need to run on git master. The released version does not allow us to access 
 
 Features: 
 
-- ✅ Strings, Arrays, Maps, Custom Classes.
+- ✅ Strings, ArrayBuffers, Arrays, Maps, Custom Classes.
 - ✅ Work with AssemblyScript objects in Python.
 - ✅ Instantiate new AssemblyScript objects in Python. 
 
@@ -47,17 +47,24 @@ module = Module(wasm)
 
 Here are some sample interactions.
 
-#### Strings
+#### Strings & ArrayBuffers
 
 ```typescript
 export function helloworld(name: string): string {
     return "hello, " + name
+}
+
+export function reverse_bytes(input: ArrayBuffer): ArrayBuffer {
+    return Uint8Array.wrap(input).reverse().buffer
 }
 ```
 
 ```python
 >>> module.helloworld("michael", as_=str)
 "hello, michael"
+
+>>> module.reverse_bytes(b"\1\2\3", as_=bytes)
+b'\3\2\1'
 ```
 
 You'll note that you have to specificy the desired return type via `as_`. This is because WASM only
@@ -65,12 +72,14 @@ gives us a pointer to a memory location, and we otherwise have no idea what the 
 `Resolving Return Values` for other options.
 
 Passing values *into* AssemblyScript works, because we know it the type. In this case, we can allocate
-a `string` on the AssemblyScript side and pass the pointer to it into `helloworld`.
+a `string` or `ArrayBuffer on the AssemblyScript side and pass the pointer to it
+into the called AssemblyScript function.
 
-Note: You'll get a real Python `str` from AssemblyScript, and you are expected to pass real `str` 
-objects to AssemblyScript functions. Strings are immutable in AssemblyScript and Python. Those
+Note: You'll get a real Python `str` or `bytes` from AssemblyScript, and you are expected to pass real `str`/`bytes`
+objects to AssemblyScript functions. Strings and ArrayBuffers/`bytes` are immutable in AssemblyScript and Python. Those
 things mean that for the boundary Python <-> AssemblyScript, they are passed by value and copied. No
-reference counting is involved.
+reference counting is involved. Thus, `reverse_bytes` above can modify its
+passed-in ArrayBuffer without affecting the original Python `bytes` parameter.
 
 
 #### Objects & Properties
